@@ -124,7 +124,7 @@ Any public method calling another public method on the same `TopologyGraph` inst
 
 - `BlastRadiusEngine` — entry point. Accepts a `ServiceId` and a `GraphSnapshot`. Returns a `BlastRadiusResult`.
 - `BlastRadiusResult` — contains the `AffectedSet` (ordered by degradation severity, highest first) and metadata (computation time, snapshot timestamp).
-- `AffectedSet` — a map of `ServiceId → DegradationScore`. Score is computed as a weighted function of dependency depth and the `criticality` annotation on the service node. Services with `ProbeStatus.DEGRADED` receive a reduced score rather than the maximum.
+- `AffectedSet` — a map of `ServiceId → DegradationScore`. Score is computed as `criticality / (depth + 1)`, normalized to [0,1] across the full affected set. `criticality` is an integer annotation on `ServiceNode` in the range [1,10]; `depth` is the number of hops from the failed root node in the BFS traversal (root's direct dependents are depth 1). Services with `ProbeStatus.DEGRADED` receive a `0.5` multiplier on their raw score rather than the full value — they are impaired but reachable. The weights (`criticality` scale, multiplier value) are starting-point defaults; document any tuning rationale in the design decisions log.
 - `FailureSimulator` — marks a node as hypothetically failed on a cloned snapshot without mutating the live graph. Used for what-if analysis via the API.
 - `CascadeSimulator` — extends `FailureSimulator`. After marking the root node failed, iteratively propagates failure to dependents whose fraction of failed/degraded dependencies meets a configurable `cascadeThreshold`. Repeats until no new nodes are added (the cascade has stabilised). Each affected node is tagged with its `FailureMode` (`HARD_DOWN` | `DEGRADED` | `CASCADED`) and the wave number in which it was reached.
 - `CascadeResult` — wraps `BlastRadiusResult` with the per-service `FailureMode` map and wave assignments. Returned by `POST /simulate` when `cascadeEnabled: true`.
@@ -193,6 +193,8 @@ When `SseFeed` is shed, its tailer jumps to the current producer index. The dash
 4. Resume receiving live events from the current position
 ```
 
+**SSE sequence number specification:** Every `ServerSentEvent` emitted by the `SseController` carries the Chronicle Queue tailer index of the corresponding `FailureEvent` in the SSE `id:` field. This is the `eventIndex` field on `FailureEvent` (see data model below), stamped by the `EventBus` at append time. The dashboard client tracks the last received `id:` value. On the next incoming event, if `event.lastEventId > previousId + 1`, a gap is confirmed and the recovery sequence above is triggered immediately — before processing the new event. The SSE `id:` field is not optional; omitting it silently disables the recovery path.
+
 The client loses the step-by-step event history during the lag window, but gets a complete and accurate picture of current state. This is acceptable because a dashboard is a live view, not a historical record. History lives in the `StateStore` (PostgreSQL), which never sheds.
 
 **Why this matters for Ripple's design:**
@@ -233,7 +235,7 @@ Consumes blast radius results. Matches affected services against a configured ru
 
 **Package:** `com.ripple.api`
 
-**Rate limiting:** Token bucket per caller (identified by API key or IP). Implemented with `AtomicLong` CAS loop. On bucket exhaustion: `503 Service Unavailable` + `Retry-After` header. Bucket state stored in Redis for distributed deployments.
+**Rate limiting:** Token bucket per caller (identified by API key or IP). Implemented with `AtomicLong` CAS loop. On bucket exhaustion: `503 Service Unavailable` + `Retry-After` header. Bucket state stored in Redis for distributed deployments. The bucket has two parameters: `requestsPerSecond` (the sustained refill rate) and `maxBurst` (the token ceiling — caps accumulation during idle periods so a quiet caller cannot build up credit and then fire a large burst). Both are configurable via `application.yml` under `ripple.rate-limit`.
 
 **Key endpoints:**
 
@@ -297,7 +299,8 @@ record ProbeResult(ServiceId serviceId, ProbeStatus status,
                    Duration latency, Instant timestamp, String detail) {}
 
 record FailureEvent(EventType type, ServiceId origin,
-                    BlastRadiusResult blastRadius, Instant timestamp) {}
+                    BlastRadiusResult blastRadius, Instant timestamp,
+                    long eventIndex) {}  // Chronicle Queue tailer index; carried as SSE id: field
 
 record GraphSnapshot(Map<ServiceId, Set<ServiceId>> adjacency,
                      Instant capturedAt, long version) {}

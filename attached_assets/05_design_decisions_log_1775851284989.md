@@ -201,3 +201,51 @@ _Add new entries below as decisions are made during development._
 **Why Micrometer directly:** Ripple already exports all relevant metrics (probe latencies, circuit breaker states, subscriber lag) via Micrometer. Reading them from the `MeterRegistry` in-process is zero-latency and requires no external dependency. The alternative — querying Prometheus — would add an HTTP round-trip and a dependency on Prometheus being up, which is ironic for a tool that evaluates system health.
 
 **Trade-off accepted:** Evaluating assertions in-process means the steady-state evaluator shares fate with the rest of Ripple. If Ripple itself is the thing that's broken, the evaluator can't tell you. Accepted — the use case is evaluating the health of the *monitored fleet*, not Ripple itself. Ripple's own health is covered by `/health`.
+
+---
+
+## DDL-013 — Severity scoring formula: explicit expression, not description
+
+**Date:** Pre-Phase-2
+
+**Decision:** Define the `DegradationScore` formula as `criticality / (depth + 1)`, normalized to [0,1] across the full affected set, with a `0.5` multiplier for services at `ProbeStatus.DEGRADED`.
+
+**Context:** The original architecture reference described scoring as "a weighted function of dependency depth and criticality annotation." That is a description of the shape of a formula, not a formula. Without the explicit expression, Phase 3 unit tests can only assert set membership (`assertThat(affected).contains(frontend)`) — they cannot assert score values. The `DegradationPlanner` sorts runbook suggestions by score, so an undefined formula means undefined runbook ordering.
+
+**Why this formula:** `criticality / (depth + 1)` has two useful properties: (1) a depth-0 node (the failed root) scores `criticality / 1 = criticality`, unnormalized maximum; (2) score decreases as depth increases — a service three hops downstream is less urgently affected than a direct dependent. Normalizing across the affected set converts raw scores to a [0,1] ranking while preserving relative ordering. The `0.5` multiplier for `DEGRADED` services reflects that they are impaired but reachable — the blast is partial.
+
+**Why these specific weights:** They are defensible starting points, not empirically derived constants. The `criticality` annotation ranges [1,10] and is declared by the service owner — it encodes domain knowledge that the scoring engine has no other access to. The `0.5` DEGRADED multiplier reflects a half-weight assumption for partial failures. Both can be tuned per deployment without code changes if bound to `application.yml`.
+
+**What this enables:** Deterministic unit tests. Given a graph with known `criticality` values and known BFS depths, expected scores are computable by hand before writing a line of test code. If a refactor changes the scoring logic, the test catches it. The `DegradationPlanner`'s runbook ranking is now predictable and auditable.
+
+**Trade-off accepted:** The formula introduces a precision illusion — the weights are not calibrated against real production data. Document this explicitly in the class-level Javadoc of `BlastRadiusEngine`: "Scores are relative severity rankings, not probability estimates. Weights are configurable defaults."
+
+---
+
+## DDL-014 — SSE `id:` field carries Chronicle Queue tailer index
+
+**Date:** Pre-Phase-2
+
+**Decision:** Every `ServerSentEvent` emitted by `SseController` carries the Chronicle Queue tailer index of the corresponding `FailureEvent` as the SSE `id:` field. This index is the `eventIndex` field on the `FailureEvent` record, stamped by `EventBus` at append time.
+
+**Context:** The `SseFeed` shedding design is only safe if the recovery path (detect gap → fetch snapshot → re-render → resume) is guaranteed to trigger. The recovery path triggers on a client-side gap detection. Gap detection requires a monotonic sequence number on every SSE event. Without the `id:` field, the gap is invisible to the client — the stream continues with no indication that events were skipped.
+
+**Why the Chronicle Queue tailer index specifically:** It is the natural monotonic identifier for events in the ring buffer. It is already maintained per-subscriber by Chronicle Queue. Stamping it onto `FailureEvent` at append time costs one field. The client receiving an `id:` that jumps from 437 to 12450 knows exactly how many events it missed and can trigger recovery without any additional server-side infrastructure.
+
+**Implementation constraint:** The SSE `id:` field is not optional in `SseController`. The `ServerSentEvent.builder().id(String.valueOf(event.eventIndex()))` call must be present. Removing it or making it conditional silently disables the recovery path — the code compiles and the stream runs, but the client cannot detect shedding. This constraint must be stated in the `SseController` class-level Javadoc.
+
+**Trade-off accepted:** The `eventIndex` is per-process and resets on Ripple restart. A client that stays connected across a restart will detect a false gap (index jumps backward or resets to 0). Mitigation: on Ripple restart, all SSE connections are dropped (the Flux completes). Clients reconnect and re-render from snapshot — the same recovery path. No special handling needed.
+
+---
+
+## DDL-015 — Token bucket max-burst cap as a first-class config parameter
+
+**Date:** Pre-Phase-2
+
+**Decision:** Add `maxBurst` as a required configuration parameter alongside `requestsPerSecond` in `ripple.rate-limit`. Default: `2 × requestsPerSecond`. Token accumulation is capped at `maxBurst` — a caller that has been idle cannot accumulate unlimited tokens and then fire a burst larger than `maxBurst`.
+
+**Context:** The original rate limiter design specified only `requestsPerSecond`. A token bucket without a burst cap allows unlimited token accumulation during idle periods. A caller that is quiet for 60 seconds at 100 tokens/sec can accumulate 6000 tokens and then fire 6000 requests in a single instant — a 6000 req/sec burst against a system configured for 100 req/sec sustained. This defeats the purpose of rate limiting.
+
+**Why 2× as the default:** A burst cap of 2× the sustained rate allows a reasonable transient burst (a caller catching up after a brief outage) without permitting adversarial accumulation. It is a common industry default (Nginx, AWS API Gateway) and has a simple justification: if a caller is legitimately retrying, they need at most one burst window worth of credit, not unbounded accumulation.
+
+**Implementation note:** The `AtomicLong` storing token count is initialized to `maxBurst` (full bucket at startup). On each `acquire()`, the CAS loop subtracts 1 if `tokens > 0`. On each refill tick, tokens are incremented by `requestsPerSecond / refillRateHz` but capped at `maxBurst` via `Math.min(current + refillAmount, maxBurst)` in the CAS loop. No additional data structures required.

@@ -1,0 +1,22 @@
+SSE sequence number scheme is the most important item on the list, and the document correctly identifies why. The entire SseFeed shedding design rests on the client detecting the gap. If the id: field isn't specified before Phase 4, the WebFlux ServerSentEvent.builder() call gets written without .id() and the recovery path is silently broken — it compiles, it runs, and it lies to the operator. This is a spec gap, not an engineering gap. Fix it now: the SSE id: field carries the Chronicle Queue tailer index, the client compares consecutive IDs, any jump triggers GET /topology. One sentence in the architecture doc prevents a subtle correctness bug in Phase 4.
+
+
+
+Severity scoring formula is also correct. "Weighted function of depth and criticality" is not a formula, it's a description of a formula. Without the actual expression, Phase 3 tests can only assert set membership, not score values, and the DegradationPlanner is sorting on an undefined basis. The fix is low-cost: pick a defensible formula, write it down, document that the weights are starting points. Something like score = criticality / (depth + 1) normalized to [0,1] is enough. The document's caveat about "precision illusion" is fair but shouldn't stop you — just be honest in the Javadoc that weights aren't empirically calibrated.
+
+
+
+Summary: what to actually do right now
+
+Three things deserve action before Phase 2 begins, because they affect code you're about to write or test structure you're about to establish:
+
+1. Add one sentence to the architecture doc specifying that SseFeed events carry the Chronicle Queue tailer index as the SSE id: field, and that gap detection on the client side is the trigger for the GET /topology recovery call.
+
+2. Write the severity scoring formula explicitly in the architecture doc or design decisions log. Pick any defensible formula and document the weight assumptions.
+
+3. Add maxBurst as a config parameter to ripple.rate-limit in application.yml now, so Phase 5 inherits the right shape.
+
+
+
+Everything else is either Phase 2+ work or premature optimization.
+
