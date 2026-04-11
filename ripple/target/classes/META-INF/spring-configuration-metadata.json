@@ -1,0 +1,116 @@
+{
+  "groups": [
+    {
+      "name": "ripple.circuit-breaker",
+      "type": "com.ripple.config.CircuitBreakerProperties",
+      "sourceType": "com.ripple.config.CircuitBreakerProperties"
+    },
+    {
+      "name": "ripple.probe",
+      "type": "com.ripple.config.ProbeProperties",
+      "sourceType": "com.ripple.config.ProbeProperties"
+    },
+    {
+      "name": "ripple.rate-limit",
+      "type": "com.ripple.config.RateLimitProperties",
+      "sourceType": "com.ripple.config.RateLimitProperties"
+    },
+    {
+      "name": "ripple.stream",
+      "type": "com.ripple.config.StreamProperties",
+      "sourceType": "com.ripple.config.StreamProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "ripple.circuit-breaker.cooldown-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.CircuitBreakerProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.circuit-breaker.failure-threshold",
+      "type": "java.lang.Integer",
+      "sourceType": "com.ripple.config.CircuitBreakerProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.probe.concurrency-limit",
+      "type": "java.lang.Integer",
+      "sourceType": "com.ripple.config.ProbeProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.probe.default-interval-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.ProbeProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.probe.default-latency-threshold-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.ProbeProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.probe.http-timeout-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.ProbeProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.probe.tcp-timeout-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.ProbeProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.rate-limit.max-burst",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.RateLimitProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.rate-limit.requests-per-second",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.RateLimitProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.stream.alert-router-high-water-mark",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.StreamProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.stream.backpressure-check-interval-ms",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.StreamProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.stream.data-dir",
+      "type": "java.lang.String",
+      "sourceType": "com.ripple.config.StreamProperties"
+    },
+    {
+      "name": "ripple.stream.degradation-planner-high-water-mark",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.StreamProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.stream.sse-high-water-mark",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.StreamProperties",
+      "defaultValue": 0
+    },
+    {
+      "name": "ripple.stream.state-store-high-water-mark",
+      "type": "java.lang.Long",
+      "sourceType": "com.ripple.config.StreamProperties",
+      "defaultValue": 0
+    }
+  ],
+  "hints": []
+}
