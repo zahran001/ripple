@@ -131,6 +131,7 @@ public class RippleOrchestrator {
     private void recordProbeLatency(ServiceId serviceId, Duration latency) {
         Timer.builder("probe.latency")
             .tag("service", serviceId.value())
+            .publishPercentiles(0.99, 0.95, 0.50)
             .register(meterRegistry)
             .record(latency);
     }

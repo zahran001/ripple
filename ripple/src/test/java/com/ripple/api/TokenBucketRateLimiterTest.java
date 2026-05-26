@@ -72,7 +72,7 @@ class TokenBucketRateLimiterTest {
         for (int i = 0; i < 5; i++) {
             if (limiter.tryAcquire("refill-caller")) accepted++;
         }
-        assertThat(accepted).isGreaterThanOrEqualTo(1); // at least some tokens refilled
+        assertThat(accepted).isGreaterThanOrEqualTo(4); // bucket should refill to maxBurst=5
     }
 
     @Test
@@ -89,7 +89,7 @@ class TokenBucketRateLimiterTest {
         }
 
         // Accepted should be at most maxBurst (5) — not 10 (uncapped refill)
-        assertThat(accepted).isLessThanOrEqualTo((int)(maxBurst + 1)); // allow 1 token of slack
+        assertThat(accepted).isLessThanOrEqualTo((int) maxBurst);
     }
 
     @Test
@@ -109,7 +109,7 @@ class TokenBucketRateLimiterTest {
         }
         latch.await();
 
-        // Must not exceed maxBurst
-        assertThat(accepted.get()).isLessThanOrEqualTo((int) maxBurst);
+        // Exactly maxBurst threads should succeed — CAS loop is correct so no over-counting
+        assertThat(accepted.get()).isEqualTo((int) maxBurst);
     }
 }

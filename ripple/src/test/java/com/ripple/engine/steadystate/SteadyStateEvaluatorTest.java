@@ -5,10 +5,13 @@ import com.ripple.config.ProbeProperties;
 import com.ripple.engine.probe.ProbeScheduler;
 import com.ripple.engine.stream.BackpressureMonitor;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -89,5 +92,43 @@ class SteadyStateEvaluatorTest {
         boolean circuitAssertionPresent = result.assertions().stream()
             .anyMatch(a -> a.name().equals("circuit.breakers.all-closed"));
         assertThat(circuitAssertionPresent).isFalse();
+    }
+
+    @Test
+    void violated_when_probe_latency_p99_exceeds_max() {
+        // Register timer exactly as production does (with publishPercentiles).
+        // Record 50 fast (10ms) + 50 slow (2000ms) samples — p99 resolves to ~2000ms,
+        // well above the 500ms threshold. (SimpleMeterRegistry uses a coarse fixed-bucket
+        // histogram; a single slow sample in 100 gets compressed below threshold.)
+        Timer timer = Timer.builder("probe.latency")
+            .tag("service", "test-svc")
+            .publishPercentiles(0.99, 0.95, 0.50)
+            .register(meterRegistry);
+        for (int i = 0; i < 50; i++) timer.record(10, TimeUnit.MILLISECONDS);
+        for (int i = 0; i < 50; i++) timer.record(2000, TimeUnit.MILLISECONDS);
+
+        var definition = new SteadyStateDefinition(500, false, 500);
+        var result = evaluator.evaluate("high-latency", definition);
+
+        assertThat(result.status()).isEqualTo(SteadyStateResult.SteadyStateStatus.VIOLATED);
+        boolean latencyFailed = result.assertions().stream()
+            .anyMatch(a -> a.name().equals("probe.latency.p99") && !a.passed());
+        assertThat(latencyFailed).isTrue();
+    }
+
+    @Test
+    void violated_when_circuit_breaker_is_open() {
+        // Register a gauge with value 1.0 (OPEN) as the production code does
+        meterRegistry.gauge("circuit.breaker.state",
+            java.util.List.of(io.micrometer.core.instrument.Tag.of("service", "test-svc")),
+            1.0);
+
+        var definition = new SteadyStateDefinition(500, true, 500);
+        var result = evaluator.evaluate("open-circuit", definition);
+
+        assertThat(result.status()).isEqualTo(SteadyStateResult.SteadyStateStatus.VIOLATED);
+        boolean circuitFailed = result.assertions().stream()
+            .anyMatch(a -> a.name().equals("circuit.breakers.all-closed") && !a.passed());
+        assertThat(circuitFailed).isTrue();
     }
 }
